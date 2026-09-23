@@ -59,6 +59,18 @@
 
 运行环境包括 Node.js 22.19+ 和 DeepSeek Harness Web Profile；独立 runtime 升级后首次使用需在 WebUI 中重新登录。
 
+0.9.0 固定使用 Codex 0.156.1，并对以下 DSH 版本执行兼容性回归：
+
+| DSH | 设置接口 |
+| --- | --- |
+| 0.1.1-rc.2 | 旧版 settings helper 和 `connection.api` |
+| 0.1.5-rc.3 | Settings service 和 typed Remote |
+| 0.1.7-rc.1（next） | Volatile Config 和 Plugins 中的插件详情页 |
+
+DSH 0.1.7 将配置改为按 Profile entry ID 管理，入口为 **侧栏 Plugins → DSH Codex Adapter**；旧版 DSH 仍使用 **设置 → 插件 → 插件配置 → Codex**。本插件保留 `codex-subscription-provider` 这一 Bundle entry ID。升级 DSH 本体到 0.1.7 时，旧 `settings.yaml` 的 `llm-codex-subscription` 自定义值不会被 DSH 自动映射到该 entry，需要在新页面重新设置模型与网络选项；DSH 将旧文件保留为 `settings.yaml.imported`。本插件不改写该文件，不迁移或覆盖独立 Codex 登录。
+
+兼容性测试覆盖真实 Settings 生命周期、React 设置读写、适配器回归和空登录目录下的 Codex RPC 启动，不等同于已完成带登录的模型生成或完整 Web Profile 部署验收。
+
 ## 安装
 
 图形化登录是本插件唯一的登录方式。系统的 `codex login status` 只报告
@@ -66,15 +78,15 @@
 
 ### GitHub Release（推荐）
 
-Release 资产是跨平台的 npm tarball，不发布到 npm。`dsh plugin` 会通过 `pnpm` 安装锁定的运行时依赖，并按目标系统和架构解析官方 Codex 对应的 native optional package。`v0.8.4` 的资产文件名为：
+Release 资产是跨平台的 npm tarball，不发布到 npm。`dsh plugin` 会通过 `pnpm` 安装锁定的运行时依赖，并按目标系统和架构解析官方 Codex 对应的 native optional package。`v0.9.0` 的资产文件名为：
 
-`local-dsh-codex-adapter-0.8.4.tgz`
+`local-dsh-codex-adapter-0.9.0.tgz`
 
 macOS/Linux：
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/local-dsh-codex-adapter-0.8.4.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
 dsh --profile web --dump-config
 # Bundle 发生变化后需要重启 DSH Web Profile。
 dsh web --no-open
@@ -84,7 +96,7 @@ Windows PowerShell：
 
 ```powershell
 dsh plugin --profile web add --save-exact `
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/local-dsh-codex-adapter-0.8.4.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
 dsh --profile web --dump-config
 dsh web --no-open
 ```
@@ -92,8 +104,8 @@ dsh web --no-open
 需要审计安装时，可从同一个 Release 下载 `SHA256SUMS`，校验 tarball 后再通过本地 `file:` URL 安装：
 
 ```sh
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/local-dsh-codex-adapter-0.8.4.tgz
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/SHA256SUMS
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/SHA256SUMS
 ```
 
 Linux 校验：
@@ -112,7 +124,7 @@ shasum -a 256 --check SHA256SUMS
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "file:$PWD/local-dsh-codex-adapter-0.8.4.tgz"
+  "file:$PWD/local-dsh-codex-adapter-0.9.0.tgz"
 ```
 
 Release 工作流只上传两个资产：插件 tarball 和 `SHA256SUMS`。升级时，对新的 Release URL 再执行 `dsh plugin --profile web add --save-exact`，然后重启 Profile。无需编辑 `settings.yaml`；配置仍在 `设置 → 插件 → 插件配置 → Codex` 中完成。
@@ -161,6 +173,7 @@ dsh plugin --profile web remove @local/dsh-codex-adapter
 ```sh
 npm ci
 npm test
+npm run test:compat
 ```
 
-CI 使用 Node.js 22.19，覆盖 Ubuntu、macOS 和 Windows。
+CI 使用 Node.js 22.19，覆盖 Ubuntu、macOS 和 Windows，以及上述 DSH 兼容矩阵。`test:compat` 在临时目录安装不同版本，不修改仓库依赖或已有登录。

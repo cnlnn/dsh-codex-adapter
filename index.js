@@ -1,15 +1,8 @@
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import z from '@deepseek-ai/schemastery'
-import {
-  CallId,
-  CONTEXT_WINDOW_EXCEEDED_CODE,
-  LlmAdapter,
-  LlmError,
-  ReasoningEffortId,
-  isContextWindowExceededError,
-} from '@deepseek-ai/dsh-llm'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import * as llm from '@deepseek-ai/dsh-llm'
+import * as settings from '@deepseek-ai/dsh-settings'
 import {
 	CODEX_ADAPTER_VERSION,
 	CODEX_APP_SERVER_CONFIG_OVERRIDES,
@@ -22,14 +15,38 @@ import {
 	sanitizedEnvironment,
 } from './lib/app-server.js'
 
+const {
+  CONTEXT_WINDOW_EXCEEDED_CODE,
+  LlmAdapter,
+  LlmError,
+  ReasoningEffortId,
+  isContextWindowExceededError,
+} = llm
+const CallId = llm.ToolCallId ?? llm.CallId
+
 export const name = 'llm-codex-subscription'
 export const inject = ['llm', 'webServer']
 export const CODEX_PROVIDER = 'codex'
 /** DSH renders AUTH as an API-key failure; Codex uses ChatGPT OAuth instead. */
 const CODEX_AUTH_REQUIRED_CODE = 'AUTH_REQUIRED'
-const CODEX_AUTH_REQUIRED_MESSAGE =
-  'Codex ChatGPT is not signed in. Open Settings → Plugins → Plugin Configuration → Codex to sign in.'
-export const CODEX_SETTINGS_NAMESPACE = settingsNamespace('llm-codex-subscription')
+const CODEX_AUTH_REQUIRED_MESSAGE = settings.SettingsForms === undefined
+  ? 'Codex ChatGPT is not signed in. Open Settings → Plugins → Plugin Configuration → Codex to sign in.'
+  : 'Codex ChatGPT is not signed in. Open Plugins → DSH Codex Adapter to sign in.'
+export const CODEX_SETTINGS_NAMESPACE = 'llm-codex-subscription'
+
+export function installCodexSettings(ctx, config, hooks) {
+  if (typeof settings.installSettingsSection === 'function') {
+    return settings.installSettingsSection(ctx, CODEX_SETTINGS_NAMESPACE, Config, config, hooks)
+  }
+  return ctx.inject(['settings'], scoped => {
+    if (typeof scoped.settings.installSection === 'function') {
+      scoped.settings.installSection(ctx, CODEX_SETTINGS_NAMESPACE, Config, config, hooks)
+    } else {
+      // DSH 0.1.7 reads live Config references instead of a settings namespace.
+      scoped.effect(() => scoped.settings.configure({ auto: false }, ctx.fiber), 'codex settings form')
+    }
+  })
+}
 export {
   CODEX_ADAPTER_VERSION,
   CODEX_APP_SERVER_CONFIG_OVERRIDES,
@@ -142,9 +159,13 @@ const catalogModel = z.object({
   inputModalities: z.array(z.string()),
 })
 
+function liveConfigField(schema) {
+  return settings.SettingsForms === undefined ? schema : schema.volatile()
+}
+
 export const Config = z.object({
-  allowNetworkAccess: z.boolean().default(false),
-  models: z.array(catalogModel).default([]),
+  allowNetworkAccess: liveConfigField(z.boolean().default(false)),
+  models: liveConfigField(z.array(catalogModel).default([])),
 })
 
 // Keep structured tool_calls as the provider contract. DSH dispatches each
@@ -295,10 +316,11 @@ function mergeCatalogModel(live, configured) {
 }
 
 function resolveConfig(config = {}) {
+  const read = value => typeof value?.get === 'function' ? value.get() : value
   return {
     workingDirectory: config.workingDirectory ?? homedir(),
-    allowNetworkAccess: config.allowNetworkAccess ?? false,
-    models: resolveCatalog(config.models),
+    allowNetworkAccess: read(config.allowNetworkAccess) ?? false,
+    models: resolveCatalog(read(config.models)),
   }
 }
 
@@ -4287,10 +4309,10 @@ export function apply(ctx, config) {
   ctx.effect(() => disposeAuthRoutes, 'codex auth routes')
   ctx.llm.registerModelDiscovery(
     CODEX_SETTINGS_NAMESPACE,
-    request => adapter.discoverModels(request?.signal),
+    (request, signal) => adapter.discoverModels(signal ?? request?.signal),
   )
   ctx.llm.registerAdapter([CODEX_PROVIDER], adapter)
-  installSettingsSection(ctx, CODEX_SETTINGS_NAMESPACE, Config, config, {
+  installCodexSettings(ctx, config, {
     setSource: (source) => {
       current = source
     },

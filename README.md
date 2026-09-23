@@ -59,6 +59,18 @@ Runtime defaults:
 
 Requirements: Node.js 22.19+ and a DeepSeek Harness Web profile. The graphical login is stored in the plugin's independent Codex home; after upgrading to this isolated runtime, sign in again from the WebUI.
 
+Version 0.9.0 pins Codex 0.156.1 and tests these DSH generations:
+
+| DSH | Settings integration |
+| --- | --- |
+| 0.1.1-rc.2 | Legacy settings helpers and `connection.api` |
+| 0.1.5-rc.3 | Settings service and typed Remote calls |
+| 0.1.7-rc.1 (next) | Volatile Config fields and the Plugins bundle page |
+
+DSH 0.1.7 moves configuration to profile entry IDs. Open **Plugins → DSH Codex Adapter** to configure this version; older DSH versions keep **Settings → Plugins → Plugin Configuration → Codex**. The bundle entry ID remains `codex-subscription-provider`. When upgrading DSH itself from an older generation, custom values under `llm-codex-subscription` in the old `settings.yaml` are not automatically mapped to this entry by DSH. Reapply those model/network values in the new page; DSH retains the old document as `settings.yaml.imported`. The adapter does not rewrite that document or move its independent Codex login.
+
+The compatibility suite covers native settings lifecycles, React settings reads/writes, adapter regressions, and fresh-home Codex RPC startup. It does not certify authenticated model generation or an entire deployed Web profile.
+
 ## Install
 
 The graphical login is the only sign-in path for this plugin. The system
@@ -67,15 +79,15 @@ independent account.
 
 ### GitHub Release (recommended)
 
-The release asset is a platform-neutral npm tarball; it is not published to npm. `pnpm`, through `dsh plugin`, resolves the pinned runtime dependencies and the matching official Codex native optional package for the host OS and architecture. The `v0.8.4` asset is:
+The release asset is a platform-neutral npm tarball; it is not published to npm. `pnpm`, through `dsh plugin`, resolves the pinned runtime dependencies and the matching official Codex native optional package for the host OS and architecture. The `v0.9.0` asset is:
 
-`local-dsh-codex-adapter-0.8.4.tgz`
+`local-dsh-codex-adapter-0.9.0.tgz`
 
 macOS/Linux:
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/local-dsh-codex-adapter-0.8.4.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
 dsh --profile web --dump-config
 # Restart the DSH Web profile after the bundle changes.
 dsh web --no-open
@@ -85,7 +97,7 @@ Windows PowerShell:
 
 ```powershell
 dsh plugin --profile web add --save-exact `
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/local-dsh-codex-adapter-0.8.4.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
 dsh --profile web --dump-config
 dsh web --no-open
 ```
@@ -93,8 +105,8 @@ dsh web --no-open
 For an audited install, download `SHA256SUMS` from the same release and verify the tarball before installing it from a local `file:` URL:
 
 ```sh
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/local-dsh-codex-adapter-0.8.4.tgz
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.8.4/SHA256SUMS
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/SHA256SUMS
 ```
 
 Linux checksum verification:
@@ -113,7 +125,7 @@ After verification, install the local tarball:
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "file:$PWD/local-dsh-codex-adapter-0.8.4.tgz"
+  "file:$PWD/local-dsh-codex-adapter-0.9.0.tgz"
 ```
 
 The release workflow uploads exactly two assets: the package tarball and `SHA256SUMS`. To update, run `dsh plugin --profile web add --save-exact` with the new release URL, then restart the profile. No `settings.yaml` edit is required; configuration remains in `Settings → Plugins → Plugin Configuration → Codex`.
@@ -162,6 +174,7 @@ Removal detaches the adapter and subscription provider from the DSH Web profile.
 ```sh
 npm ci
 npm test
+npm run test:compat
 ```
 
-The CI matrix runs on Ubuntu, macOS, and Windows with Node.js 22.19.
+The CI matrix runs on Ubuntu, macOS, and Windows with Node.js 22.19, including the DSH versions above. `test:compat` installs each generation in a temporary directory without changing the checkout's dependencies or existing login.
