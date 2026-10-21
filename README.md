@@ -59,13 +59,14 @@ Runtime defaults:
 
 Requirements: Node.js 22.19+ and a DeepSeek Harness Web profile. The graphical login is stored in the plugin's independent Codex home; after upgrading to this isolated runtime, sign in again from the WebUI.
 
-Version 0.9.0 pins Codex 0.156.1 and tests these DSH generations:
+Source version 0.9.1 pins Codex 0.156.1, adds DSH 0.2.1-rc.2 support, and retains compatibility coverage for these generations:
 
 | DSH | Settings integration |
 | --- | --- |
 | 0.1.1-rc.2 | Legacy settings helpers and `connection.api` |
 | 0.1.5-rc.3 | Settings service and typed Remote calls |
-| 0.1.7-rc.1 (next) | Volatile Config fields and the Plugins bundle page |
+| 0.1.7-rc.1 | Volatile Config fields and the Plugins bundle page |
+| 0.2.1-rc.2 | Updated icon exports, bundle configuration and model adapter APIs |
 
 DSH 0.1.7 moves configuration to profile entry IDs. Open **Plugins → DSH Codex Adapter** to configure this version; older DSH versions keep **Settings → Plugins → Plugin Configuration → Codex**. The bundle entry ID remains `codex-subscription-provider`. When upgrading DSH itself from an older generation, custom values under `llm-codex-subscription` in the old `settings.yaml` are not automatically mapped to this entry by DSH. Reapply those model/network values in the new page; DSH retains the old document as `settings.yaml.imported`. The adapter does not rewrite that document or move its independent Codex login.
 
@@ -82,6 +83,8 @@ independent account.
 The release asset is a platform-neutral npm tarball; it is not published to npm. `pnpm`, through `dsh plugin`, resolves the pinned runtime dependencies and the matching official Codex native optional package for the host OS and architecture. The `v0.9.0` asset is:
 
 `local-dsh-codex-adapter-0.9.0.tgz`
+
+The release links below still point to published version 0.9.0. For DSH 0.2.1-rc.2, install 0.9.1 from the source directory until its release package is published.
 
 macOS/Linux:
 

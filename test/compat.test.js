@@ -17,7 +17,10 @@ async function loadClient(options = {}) {
     document: { querySelector: () => ({}) },
     fetch: options.fetch,
     window: { __ModuleLoader__: { load({ factory }) {
-      client = factory(name => name === 'react' ? React : {
+      client = factory(name => name === 'react' ? React : options.modernIcons ? {
+        IconChevronDownOutlineRegular: () => null,
+        IconRefreshOutlineRegular: () => null,
+      } : {
         IconChevronDownOutline14: () => null,
         IconRefreshOutline14: () => null,
       })
@@ -36,8 +39,8 @@ test('settings client preserves the legacy API without requiring Remote', async 
 })
 
 test('React settings pages load and save using legacy, Remote and Config Forms namespaces', async () => {
-  for (const mode of ['legacy', 'remote', 'forms']) {
-    const ns = mode === 'forms' ? 'codex-subscription-provider' : CODEX_SETTINGS_NAMESPACE
+  for (const mode of ['legacy', 'remote', 'forms', 'forms-modern-icons']) {
+    const ns = mode.startsWith('forms') ? 'codex-subscription-provider' : CODEX_SETTINGS_NAMESPACE
     let revision = 3
     let value = { models: [], allowNetworkAccess: false }
     const mutations = []
@@ -69,9 +72,9 @@ test('React settings pages load and save using legacy, Remote and Config Forms n
         register: (options, render) => { callbacks.set(options.name, render) },
       },
     }
-    const client = await loadClient({ fetch: async () => ({ ok: true, json: async () => ({ ok: true, value: { signedIn: false, buckets: [] } }) }) })
+    const client = await loadClient({ modernIcons: mode === 'forms-modern-icons', fetch: async () => ({ ok: true, json: async () => ({ ok: true, value: { signedIn: false, buckets: [] } }) }) })
     client.apply(ctx)
-    const render = callbacks.get(mode === 'forms' ? 'plugins.bundle.config' : 'settings.plugin.item')
+    const render = callbacks.get(mode.startsWith('forms') ? 'plugins.bundle.config' : 'settings.plugin.item')
     let tree
     try {
       await act(async () => { tree = create(React.createElement(() => render({ view: 'page' }))) })
