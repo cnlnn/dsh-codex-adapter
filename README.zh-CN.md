@@ -59,13 +59,14 @@
 
 运行环境包括 Node.js 22.19+ 和 DeepSeek Harness Web Profile；独立 runtime 升级后首次使用需在 WebUI 中重新登录。
 
-0.9.0 固定使用 Codex 0.156.1，并对以下 DSH 版本执行兼容性回归：
+源码版本 0.9.1 固定使用 Codex 0.156.1，新增 DSH 0.2.1-rc.2 适配，并保留以下版本的兼容性回归：
 
 | DSH | 设置接口 |
 | --- | --- |
 | 0.1.1-rc.2 | 旧版 settings helper 和 `connection.api` |
 | 0.1.5-rc.3 | Settings service 和 typed Remote |
-| 0.1.7-rc.1（next） | Volatile Config 和 Plugins 中的插件详情页 |
+| 0.1.7-rc.1 | Volatile Config 和 Plugins 中的插件详情页 |
+| 0.2.1-rc.2 | 新版图标导出、插件详情页与模型适配接口 |
 
 DSH 0.1.7 将配置改为按 Profile entry ID 管理，入口为 **侧栏 Plugins → DSH Codex Adapter**；旧版 DSH 仍使用 **设置 → 插件 → 插件配置 → Codex**。本插件保留 `codex-subscription-provider` 这一 Bundle entry ID。升级 DSH 本体到 0.1.7 时，旧 `settings.yaml` 的 `llm-codex-subscription` 自定义值不会被 DSH 自动映射到该 entry，需要在新页面重新设置模型与网络选项；DSH 将旧文件保留为 `settings.yaml.imported`。本插件不改写该文件，不迁移或覆盖独立 Codex 登录。
 
@@ -81,6 +82,8 @@ DSH 0.1.7 将配置改为按 Profile entry ID 管理，入口为 **侧栏 Plugin
 Release 资产是跨平台的 npm tarball，不发布到 npm。`dsh plugin` 会通过 `pnpm` 安装锁定的运行时依赖，并按目标系统和架构解析官方 Codex 对应的 native optional package。`v0.9.0` 的资产文件名为：
 
 `local-dsh-codex-adapter-0.9.0.tgz`
+
+下面的发布链接仍为已发布的 0.9.0；使用 DSH 0.2.1-rc.2 时，请按“从源码目录安装”使用 0.9.1，等待对应发布包。
 
 macOS/Linux：
 

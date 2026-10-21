@@ -1,0 +1,82 @@
+name: Harness compatibility
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'index.js'
+      - 'lib/**'
+      - 'test/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - '.github/workflows/upstream.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [latest, next]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+      - run: node scripts/check-upstream.mjs "$CHANNEL" compat-result
+        env:
+          CHANNEL: ${{ matrix.channel }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: compatibility-${{ matrix.channel }}
+          path: compat-result/
+          if-no-files-found: error
+
+  propose:
+    if: github.event_name != 'pull_request'
+    needs: probe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: compatibility-*
+          path: compat-evidence
+      - run: node scripts/accept-compat.mjs compat-evidence
+      - name: Propose verified compatibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then exit 0; fi
+          branch=automation/harness-compatibility
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$branch"
+          git add package.json package-lock.json
+          git commit -m 'fix: accept tested Harness versions'
+          git fetch origin "$branch" || true
+          git push --force-with-lease origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]; then
+            printf '%s\n' 'Adds exact Harness versions after isolated tests and real browser verification.' '' "Evidence: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" '' 'No automatic merge or release. Logged-in model calls are not part of this credential-free check.' > /tmp/compat-pr.md
+            gh pr create --head "$branch" --title 'Support verified Harness versions' --body-file /tmp/compat-pr.md
+          fi
