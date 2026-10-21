@@ -20,7 +20,7 @@ const metadata = JSON.parse(command(npm, ['view', `@deepseek-ai/dsh@${requested}
 const version = metadata.version
 if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)) throw new Error('Registry returned an invalid version')
 const workspace = await mkdtemp(join(tmpdir(), 'dsh-upstream-'))
-let server, browser
+let server, browser, page
 let serverLog = ''
 const result = { version, requested, passed: false }
 try {
@@ -69,7 +69,7 @@ try {
   const { chromium } = await import(join(workspace, 'node_modules/playwright/index.mjs'))
   if (!process.env.DSH_TEST_BROWSER) command(process.execPath, [join(workspace, 'node_modules/playwright/cli.js'), 'install', 'chromium'], workspace, env)
   browser = await chromium.launch({ headless: true, ...(process.env.DSH_TEST_BROWSER ? { executablePath: process.env.DSH_TEST_BROWSER } : {}), args: ['--no-sandbox'] })
-  const page = await browser.newPage()
+  page = await browser.newPage()
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => { if ((message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) || /slot entry crashed/.test(message.text())) errors.push(message.text()) })
@@ -83,7 +83,8 @@ try {
   await page.goto(url)
   await page.waitForTimeout(1500)
   // First-run notices can cover the UI in a fresh profile.
-  await page.keyboard.press('Escape')
+  // Visiting Plugins leaves the initial composer and its account onboarding.
+  await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click()
   const dialogs = page.getByRole('dialog')
   if (await dialogs.count()) {
     const accept = dialogs.getByRole('button', { name: /我已了解|知道了|继续|Got it|Continue|Understand|开始使用/i })
@@ -98,6 +99,10 @@ try {
   result.plugin = { name: manifest.name, version: manifest.version }
   result.checks = ['isolated-unit-integration-tests', 'real-web-profile', 'browser-render', 'plugin-api']
 } catch (error) {
+  if (page) {
+    await page.screenshot({ path: join(output, 'failure.png'), fullPage: true }).catch(() => {})
+    await writeFile(join(output, 'page.txt'), await page.locator('body').innerText().catch(() => '')).catch(() => {})
+  }
   await writeFile(join(output, 'failure.log'), String(error.stack ?? error).replace(/token=[\w-]+/g, 'token=[redacted]'))
   process.exitCode = 1
 } finally {
