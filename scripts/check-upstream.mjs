@@ -82,13 +82,15 @@ try {
   })
   await page.goto(url)
   await page.waitForTimeout(1500)
-  // First-run notices can cover the UI in a fresh profile.
-  // Visiting Plugins leaves the initial composer and its account onboarding.
-  await page.getByRole('button', { name: /^(插件|Plugins)$/ }).click()
-  const dialogs = page.getByRole('dialog')
-  if (await dialogs.count()) {
-    const accept = dialogs.getByRole('button', { name: /我已了解|知道了|继续|Got it|Continue|Understand|开始使用/i })
-    if (await accept.count()) await accept.first().click()
+  // Fresh profiles show the preview notice, followed by account onboarding.
+  await page.getByRole('button', { name: /^(继续|Continue)$/ }).click({ timeout: 10000 }).catch(async error => {
+    if (await page.getByRole('dialog').count()) throw error
+  })
+  const onboarding = page.getByRole('dialog').filter({ hasText: /登录 DeepSeek|Sign in to DeepSeek/ })
+  if (await onboarding.count()) {
+    const close = onboarding.getByRole('button', { name: /关闭|Close/ })
+    if (await close.count()) await close.click()
+    else await page.keyboard.press('Escape')
   }
   const origin = new URL(url).origin
   const { verifyPlugin } = await import('./verify-browser.mjs')
