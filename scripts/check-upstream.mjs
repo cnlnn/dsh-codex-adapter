@@ -86,8 +86,9 @@ try {
   await page.getByRole('button', { name: /^(继续|Continue)$/ }).click({ timeout: 10000 }).catch(async error => {
     if (await page.getByRole('dialog').count()) throw error
   })
-  const onboarding = page.getByRole('dialog').filter({ hasText: /登录 DeepSeek|Sign in to DeepSeek/ })
-  if (await onboarding.count()) {
+  const onboarding = page.getByRole('dialog').filter({ hasText: /登录 DeepSeek|Sign in to (?:your )?DeepSeek/ })
+  await onboarding.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
+  if (await onboarding.isVisible()) {
     const close = onboarding.getByRole('button', { name: /关闭|Close/ })
     if (await close.count()) await close.click()
     else await page.keyboard.press('Escape')
