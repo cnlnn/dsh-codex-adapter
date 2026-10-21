@@ -22,7 +22,7 @@ for (const result of results) {
     if (!range.split(' || ').includes(result.version)) manifest.peerDependencies[name] = `${range} || ${result.version}`
   }
 }
-lock.packages[''].peerDependencies = { ...manifest.peerDependencies }
+for (const [name, range] of Object.entries(manifest.peerDependencies)) lock.packages[''].peerDependencies[name] = range
 await writeFile('package.json', JSON.stringify(manifest, null, 2) + '\n')
 await writeFile('package-lock.json', JSON.stringify(lock, null, 2) + '\n')
 console.log('Accepted exact versions:', [...new Set(results.map(r => r.version))].join(', '))
