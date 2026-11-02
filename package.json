@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-codex-adapter",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": true,
   "description": "DeepSeek Harness Codex provider adapter using the official Codex app server",
   "type": "module",

@@ -345,6 +345,131 @@ test('auth login is shared, cancel uses only the in-memory login id, and logout 
   assert.deepEqual(calls.at(-1), { method: 'account/logout', params: undefined })
 })
 
+test('expired pending logins are replaced and expose a retryable state', async () => {
+  let now = 0
+  let starts = 0
+  const client = {
+    async request(method) {
+      if (method === 'account/read') return { account: null }
+      return { loginId: `login-${++starts}`, verificationUrl: 'https://verify', userCode: 'TEST' }
+    },
+  }
+  const auth = new CodexAuthAdapter(() => client, { now: () => now, loginTimeoutMs: 100 })
+  const first = await auth.startLogin()
+  now = 101
+  assert.equal((await auth.status()).loginState, 'expired')
+  const next = await auth.startLogin()
+  assert.notEqual(next.loginId, first.loginId)
+  assert.equal(starts, 2)
+})
+
+test('login terminal notifications clear matching attempts and release subscriptions on close', async () => {
+  let starts = 0
+  const rpc = new FakeAppServerRpc(method => {
+    if (method === 'account/read') return { account: null }
+    if (method === 'account/login/start') return { loginId: `login-${++starts}`, verificationUrl: 'https://verify', userCode: 'TEST' }
+  })
+  const auth = new CodexAuthAdapter(() => rpc)
+  await auth.startLogin()
+  rpc.emit('account/login/completed', { loginId: 'unrelated', success: false })
+  assert.equal((await auth.status()).loginState, 'pending')
+  rpc.emit('account/login/completed', { loginId: 'login-1', success: false, error: 'sensitive upstream text' })
+  const status = await auth.status()
+  assert.equal(status.loginState, 'failed')
+  assert.equal(JSON.stringify(status).includes('sensitive'), false)
+  assert.equal((await auth.startLogin()).loginId, 'login-2')
+  auth.close()
+  assert.equal([...rpc.listeners.values()].every(handlers => handlers.size === 0), true)
+})
+
+test('logout invalidates an outstanding login response and blocks concurrent starts', async () => {
+  const start = deferred()
+  const logout = deferred()
+  let starts = 0
+  const client = {
+    async request(method) {
+      if (method === 'account/login/start') { starts += 1; return start.promise }
+      if (method === 'account/logout') return logout.promise
+      if (method === 'account/read') return { account: null }
+      return {}
+    },
+  }
+  const auth = new CodexAuthAdapter(() => client)
+  const pending = auth.startLogin()
+  const rejected = assert.rejects(pending, { code: 'AUTH_CONFLICT' })
+  const loggingOut = auth.logout()
+  assert.throws(() => auth.startLogin(), { code: 'AUTH_CONFLICT' })
+  logout.resolve({})
+  await loggingOut
+  start.resolve({ loginId: 'late-login', verificationUrl: 'https://verify', userCode: 'TEST' })
+  await rejected
+  assert.notEqual((await auth.status()).loginState, 'pending')
+  assert.equal(starts, 1)
+})
+
+for (const logoutFirst of [false, true]) test(`late account status preserves a newer login (logout=${logoutFirst})`, async () => {
+  const account = deferred()
+  let starts = 0
+  const client = {
+    async request(method) {
+      if (method === 'account/read') return account.promise
+      if (method === 'account/login/start') return { loginId: `login-${++starts}`, verificationUrl: 'https://verify', userCode: 'TEST' }
+      return {}
+    },
+  }
+  const auth = new CodexAuthAdapter(() => client)
+  const pendingStatus = auth.status()
+  const rejected = assert.rejects(pendingStatus, { code: 'AUTH_CONFLICT' })
+  if (logoutFirst) await auth.logout()
+  const login = await auth.startLogin()
+  account.resolve({ account: { type: 'chatgpt', planType: 'plus' } })
+  await rejected
+  assert.deepEqual(await auth.startLogin(), login)
+  assert.equal(starts, 1)
+  auth.close()
+})
+
+test('app-server crashes discard pending login instructions', async () => {
+  let starts = 0
+  const rpc = new FakeAppServerRpc(method => {
+    if (method === 'account/read') return { account: null }
+    if (method === 'account/login/start') return { loginId: `login-${++starts}`, verificationUrl: 'https://verify', userCode: 'TEST' }
+  })
+  const auth = new CodexAuthAdapter(() => rpc)
+  await auth.startLogin()
+  rpc.crash()
+  assert.equal((await auth.status()).loginState, 'failed')
+  rpc.generation += 1
+  rpc.diagnostics = { pid: 101, initialized: true }
+  assert.equal((await auth.startLogin()).loginId, 'login-2')
+})
+
+test('a failed completion arriving before the login response leaves a retryable state', async () => {
+  const rpc = new FakeAppServerRpc(method => {
+    if (method === 'account/read') return { account: null }
+    if (method === 'account/login/start') {
+      rpc.emit('account/login/completed', { loginId: 'early-login', success: false })
+      return { loginId: 'early-login', verificationUrl: 'https://verify', userCode: 'TEST' }
+    }
+  })
+  const auth = new CodexAuthAdapter(() => rpc)
+  await assert.rejects(auth.startLogin(), { code: 'AUTH_CONFLICT' })
+  assert.equal((await auth.status()).loginState, 'failed')
+  auth.close()
+})
+
+test('a changed app-server generation replaces stale login instructions', async () => {
+  let starts = 0
+  const rpc = new FakeAppServerRpc(method => {
+    if (method === 'account/login/start') return { loginId: `login-${++starts}`, verificationUrl: 'https://verify', userCode: 'TEST' }
+  })
+  const auth = new CodexAuthAdapter(() => rpc)
+  const first = await auth.startLogin()
+  rpc.generation += 1
+  assert.notEqual((await auth.startLogin()).loginId, first.loginId)
+  auth.close()
+})
+
 test('auth routes enforce methods and the browser-only POST header', async () => {
   const client = {
     async request(method, params) {
@@ -1404,6 +1529,59 @@ test('app-server adapter keeps a late turn/start alive and interrupts once after
   const interrupts = rpc.calls.filter(call => call.method === 'turn/interrupt')
   assert.equal(interrupts.length, 1)
   assert.deepEqual(interrupts[0].params, { threadId: 'thread-1', turnId: 'turn-late' })
+})
+
+test('closing a stream consumer interrupts an unfinished turn without an abort signal', async () => {
+  const rpc = new FakeAppServerRpc()
+  const client = new CodexAppServerClient({ rpc })
+  const thread = client.startThread({ model: 'gpt-5.6-sol' })
+  const streamed = await thread.runStreamed('consumer closes')
+  const pending = streamed.events.next()
+  await new Promise(resolve => setImmediate(resolve))
+  rpc.emit('item/agentMessage/delta', {
+    threadId: 'thread-1', turnId: 'turn-1', itemId: 'message-1', delta: 'partial',
+  })
+  await pending
+  await streamed.events.return()
+  const interrupts = rpc.calls.filter(call => call.method === 'turn/interrupt')
+  assert.equal(interrupts.length, 1)
+  assert.deepEqual(interrupts[0].params, { threadId: 'thread-1', turnId: 'turn-1' })
+  assert.equal(interrupts[0].options.allowRestart, false)
+  assert.equal([...rpc.listeners.values()].every(handlers => handlers.size === 0), true)
+  await client.close()
+})
+
+test('closing an old stream leaves a replacement app-server generation untouched', async () => {
+  const rpc = new FakeAppServerRpc()
+  const client = new CodexAppServerClient({ rpc })
+  const thread = client.startThread({ model: 'gpt-5.6-sol' })
+  const streamed = await thread.runStreamed('old consumer closes')
+  const pending = streamed.events.next()
+  await new Promise(resolve => setImmediate(resolve))
+  rpc.emit('item/agentMessage/delta', {
+    threadId: 'thread-1', turnId: 'turn-1', itemId: 'message-1', delta: 'partial',
+  })
+  await pending
+  rpc.generation += 1
+  await streamed.events.return()
+  assert.equal(rpc.calls.filter(call => call.method === 'turn/interrupt').length, 0)
+  assert.equal([...rpc.listeners.values()].every(handlers => handlers.size === 0), true)
+  await client.close()
+})
+
+test('abort returns promptly while the interrupt acknowledgement is pending', async () => {
+  const controller = new AbortController()
+  const rpc = new FakeAppServerRpc(method => method === 'turn/interrupt' ? new Promise(() => {}) : undefined)
+  const client = new CodexAppServerClient({ rpc })
+  const thread = client.startThread({ model: 'gpt-5.6-sol' })
+  const streamed = await thread.runStreamed('abort', { signal: controller.signal })
+  const pending = streamed.events.next()
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort()
+  await assert.rejects(pending, { code: 'ABORTED' })
+  assert.equal(rpc.calls.filter(call => call.method === 'turn/interrupt').length, 1)
+  assert.equal([...rpc.listeners.values()].every(handlers => handlers.size === 0), true)
+  await client.close()
 })
 
 test('app-server adapter handles turn/started before a late turn/start response without duplicate interrupt', async () => {

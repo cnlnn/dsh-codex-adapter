@@ -59,7 +59,7 @@ Runtime defaults:
 
 Requirements: Node.js 22.19+ and a DeepSeek Harness Web profile. The graphical login is stored in the plugin's independent Codex home; after upgrading to this isolated runtime, sign in again from the WebUI.
 
-Source version 0.9.1 pins Codex 0.156.1, adds DSH 0.2.1-rc.2 support, and retains compatibility coverage for these generations:
+Source version 0.9.2 pins Codex 0.156.1, supports DSH 0.2.1-rc.2, and retains compatibility coverage for these generations:
 
 | DSH | Settings integration |
 | --- | --- |
@@ -84,7 +84,9 @@ The release asset is a platform-neutral npm tarball; it is not published to npm.
 
 `local-dsh-codex-adapter-0.9.0.tgz`
 
-The release links below still point to published version 0.9.0. For DSH 0.2.1-rc.2, install 0.9.1 from the source directory until its release package is published.
+The release links below still point to published version 0.9.0. For DSH 0.2.1-rc.2, install 0.9.2 from the source directory until its release package is published.
+
+An unfinished stream sends one bounded interrupt when its consumer closes, then releases its subscription. Interrupts stay within the turn's app-server generation. Login completion notifications, app-server restarts, and a local 15-minute pending deadline clear stale login instructions and make a new attempt available. Delayed account-status responses are rejected after a newer login or logout changes the authentication state.
 
 macOS/Linux:
 
