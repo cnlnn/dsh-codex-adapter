@@ -16,7 +16,7 @@ async function loadClient(options = {}) {
   runInNewContext(await readFile(new URL('../lib/client.js', import.meta.url), 'utf8'), {
     document: { querySelector: () => ({}) },
     fetch: options.fetch,
-    window: { __ModuleLoader__: { load({ factory }) {
+    window: { setInterval: options.setInterval ?? setInterval, clearInterval: options.clearInterval ?? clearInterval, __ModuleLoader__: { load({ factory }) {
       client = factory(name => name === 'react' ? React : options.modernIcons ? {
         IconChevronDownOutlineRegular: () => null,
         IconRefreshOutlineRegular: () => null,
@@ -122,6 +122,51 @@ test('settings client bridges Remote arguments, results, failures and revisions'
   assert.equal((await api.llm.discoverModels({ settingsNs: CODEX_SETTINGS_NAMESPACE })).result, failure)
   remote.settings.describe = async () => { throw new Error('disconnected') }
   await assert.rejects(api.settings.describe(), /disconnected/)
+})
+
+test('login expiry clears stale instructions, stops polling, and enables a new attempt', async () => {
+  let poll
+  let stopped = 0
+  let state
+  const renders = new Map()
+  const api = { settings: { describe: async () => ({ result: { ok: true, value: {
+    writable: true, namespaces: [{ ns: CODEX_SETTINGS_NAMESPACE, value: {}, revision: 1 }],
+  } } }) } }
+  const ctx = {
+    get: () => ({ api }),
+    slots: {
+      inject: (_name, callback) => callback(),
+      register: (options, render) => renders.set(options.name, render),
+    },
+  }
+  const client = await loadClient({
+    setInterval: callback => { poll = callback; return 1 },
+    clearInterval: () => { stopped += 1 },
+    fetch: async url => {
+      let value = { buckets: [] }
+      if (url.endsWith('/auth/login')) {
+        state = 'pending'
+        value = { loginId: 'login-test', userCode: 'TEST', verificationUrl: 'https://verify' }
+      } else if (url.endsWith('/auth/status')) value = { signedIn: false, loginState: state }
+      return { ok: true, json: async () => ({ ok: true, value }) }
+    },
+  })
+  client.apply(ctx)
+  let tree
+  try {
+    await act(async () => { tree = create(React.createElement(() => renders.get('settings.plugin.item')({ view: 'page' }))) })
+    const loginButton = () => tree.root.findByProps({ children: '登录 ChatGPT' })
+    await act(async () => loginButton().props.onClick())
+    assert.equal(typeof poll, 'function')
+    state = 'expired'
+    await act(async () => poll())
+    assert.equal(loginButton().props.disabled, false)
+    assert.equal(stopped, 1)
+    assert.equal(tree.root.findAllByProps({ className: 'dca-auth-code' }).length, 0)
+    assert.match(tree.root.findByProps({ className: 'dca-auth-error', role: 'status' }).children.join(''), /过期/)
+  } finally {
+    await act(async () => tree?.unmount())
+  }
 })
 
 test('client registers immediately on legacy DSH and waits for modern Remote services', async () => {

@@ -2984,6 +2984,7 @@ export class CodexAppServerThread {
     if (signal?.aborted === true) throw abortFailure('request')
     await this.ensureThread(signal)
     const threadId = this._id
+    const generation = this.client.generation
     const queue = new AppServerEventQueue()
     const subscriptions = []
     let subscriptionsCleaned = false
@@ -2992,6 +2993,8 @@ export class CodexAppServerThread {
     let timedOut = false
     let turnEnded = false
     let interrupted = false
+    let consumerClosed = false
+    let interruptPromise
     let streamDone = false
     let startSettled = false
     let startTimer = null
@@ -3008,15 +3011,15 @@ export class CodexAppServerThread {
 
     const isConnected = () => {
       const diagnostics = this.client.diagnostics
-      return this.client.closed !== true && (diagnostics === undefined || diagnostics === null
+      return this.client.closed !== true && this.client.generation === generation && (diagnostics === undefined || diagnostics === null
         || (diagnostics.closed !== true && diagnostics.pid !== null && diagnostics.initialized !== false)
       )
     }
     const sendInterruptIfNeeded = () => {
-      if ((!aborted && !timedOut) || turnId === undefined || interrupted || turnEnded || !isConnected()) return
+      if ((!aborted && !timedOut && !consumerClosed) || turnId === undefined || interrupted || turnEnded || !isConnected()) return
       interrupted = true
       try {
-        void Promise.resolve(this.client.request('turn/interrupt', { threadId, turnId }, {
+        interruptPromise = Promise.resolve(this.client.request('turn/interrupt', { threadId, turnId }, {
           timeoutMs: 5_000,
           allowRestart: false,
         })).catch(() => {})
@@ -3278,6 +3281,10 @@ export class CodexAppServerThread {
       streamDone = true
       if (startTimer !== null) clearTimeout(startTimer)
       signal?.removeEventListener('abort', onAbort)
+      consumerClosed = true
+      sendInterruptIfNeeded()
+      queue.close()
+      if (!aborted && !timedOut) await interruptPromise
       cleanupSubscriptions()
     }
   }
@@ -3441,6 +3448,7 @@ function registerQuotaRoute(ctx, readQuota) {
 
 const LOGIN_DEVICE_CODE_TYPE = 'chatgptDeviceCode'
 const LOGIN_CHATGPT_TYPE = 'chatgpt'
+const LOGIN_WAIT_TIMEOUT_MS = 15 * 60 * 1000
 
 function authString(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
@@ -3521,31 +3529,92 @@ function authRequestOptions(timeoutMs) {
 
 /** Own the in-memory login id so clients cannot cancel arbitrary app-server logins. */
 export class CodexAuthAdapter {
-  constructor(getClient) {
+  constructor(getClient, { now = Date.now, loginTimeoutMs = LOGIN_WAIT_TIMEOUT_MS } = {}) {
     if (typeof getClient !== 'function') throw new TypeError('CodexAuthAdapter requires a client getter.')
     this.getClient = getClient
     this.currentLogin = undefined
     this.loginPromise = undefined
+    this.now = now
+    this.loginTimeoutMs = loginTimeoutMs
+    this.loginState = undefined
+    this.loginRevision = 0
+    this.boundClient = undefined
+    this.subscriptions = []
+    this.terminalLogins = new Map()
+    this.resetting = false
+    this.closed = false
+  }
+
+  resetLogin(state) {
+    this.loginRevision += 1
+    this.currentLogin = undefined
+    this.loginPromise = undefined
+    this.loginState = state
+  }
+
+  close() {
+    this.closed = true
+    this.resetLogin(undefined)
+    for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe()
+    this.terminalLogins.clear()
   }
 
   client() {
+    if (this.closed) throw authConflict('Codex authentication has been closed.')
     const client = this.getClient()
     if (client === undefined || client === null || typeof client.request !== 'function') {
       throw new TypeError('Codex authentication requires the shared app-server client.')
+    }
+    if (this.boundClient !== client) {
+      for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe()
+      if (this.boundClient !== undefined) this.resetLogin('failed')
+      this.boundClient = client
+      if (typeof client.subscribe === 'function') {
+        this.subscriptions.push(client.subscribe('crash', () => this.resetLogin('failed')))
+        this.subscriptions.push(client.subscribe('account/login/completed', result => {
+          if (typeof result?.loginId !== 'string' || typeof result.success !== 'boolean') return
+          const state = result.success ? 'complete' : 'failed'
+          if (result.loginId === this.currentLogin?.loginId) this.resetLogin(state)
+          else {
+            this.terminalLogins.set(result.loginId, state)
+            if (this.terminalLogins.size > 16) this.terminalLogins.delete(this.terminalLogins.keys().next().value)
+          }
+        }))
+      }
+    }
+    if (this.currentLogin !== undefined) {
+      if (this.currentLogin.client !== client || this.currentLogin.generation !== client.generation) {
+        this.resetLogin('failed')
+      } else if (this.now() >= this.currentLogin.expiresAt) {
+        this.resetLogin('expired')
+      }
     }
     return client
   }
 
   async status() {
-    const result = await this.client().request('account/read', { refreshToken: false }, authRequestOptions(15_000))
+    const client = this.client()
+    if (this.resetting) throw authConflict('Codex authentication is updating. Retry after it finishes.')
+    const revision = this.loginRevision
+    const result = await client.request('account/read', { refreshToken: false }, authRequestOptions(15_000))
+    if (revision !== this.loginRevision || this.resetting) {
+      throw authConflict('Codex authentication changed. Refresh its status.')
+    }
     const status = sanitizeCodexAccountStatus(result)
-    if (status.signedIn) this.currentLogin = undefined
-    return status
+    if (status.signedIn) {
+      this.currentLogin = undefined
+      this.loginState = undefined
+    }
+    return { ...status, ...(this.loginState === undefined ? {} : { loginState: this.loginState }) }
   }
 
   startLogin() {
+    this.client()
+    if (this.resetting) throw authConflict('Codex authentication is updating. Retry after it finishes.')
     if (this.loginPromise !== undefined) return this.loginPromise
     if (this.currentLogin !== undefined) return Promise.resolve(this.currentLogin.response)
+    this.resetLogin(undefined)
+    this.terminalLogins.clear()
     const promise = this.#startLogin()
     this.loginPromise = promise
     void promise.finally(() => {
@@ -3556,6 +3625,7 @@ export class CodexAuthAdapter {
 
   async #startLogin() {
     const client = this.client()
+    const revision = this.loginRevision
     let result
     let type = LOGIN_DEVICE_CODE_TYPE
     try {
@@ -3566,30 +3636,53 @@ export class CodexAuthAdapter {
       result = await client.request('account/login/start', { type }, authRequestOptions(30_000))
     }
     const response = sanitizeLoginResponse(result, type)
-    this.currentLogin = { loginId: response.loginId, response }
+    if (revision !== this.loginRevision || this.closed) {
+      if (!this.closed) {
+        await client.request('account/login/cancel', { loginId: response.loginId }, authRequestOptions(15_000)).catch(() => {})
+      }
+      throw authConflict('Codex login was superseded. Start a new login.')
+    }
+    const terminal = this.terminalLogins.get(response.loginId)
+    if (terminal !== undefined) {
+      this.loginState = terminal
+      if (terminal === 'failed') throw authConflict('Codex login did not complete. Start a new login.')
+      return response
+    }
+    this.currentLogin = {
+      loginId: response.loginId, response, client, generation: client.generation,
+      expiresAt: this.now() + this.loginTimeoutMs,
+    }
+    this.loginState = 'pending'
     return response
   }
 
   async cancelLogin() {
-    if (this.loginPromise !== undefined && this.currentLogin === undefined) {
-      await this.loginPromise.catch(() => {})
-    }
-    const current = this.currentLogin
-    if (current === undefined) throw authConflict('No Codex login is in progress.')
+    if (this.resetting) throw authConflict('Codex authentication is updating. Retry after it finishes.')
+    this.resetting = true
     try {
+      if (this.loginPromise !== undefined && this.currentLogin === undefined) {
+        await this.loginPromise.catch(() => {})
+      }
+      const current = this.currentLogin
+      if (current === undefined) throw authConflict('No Codex login is in progress.')
       await this.client().request('account/login/cancel', { loginId: current.loginId }, authRequestOptions(15_000))
       return {}
     } finally {
-      this.currentLogin = undefined
+      this.resetLogin(undefined)
+      this.resetting = false
     }
   }
 
   async logout() {
+    if (this.resetting) throw authConflict('Codex authentication is updating. Retry after it finishes.')
+    const client = this.client()
+    this.resetting = true
+    this.resetLogin(undefined)
     try {
-      await this.client().request('account/logout', undefined, authRequestOptions(15_000))
+      await client.request('account/logout', undefined, authRequestOptions(15_000))
       return {}
     } finally {
-      this.currentLogin = undefined
+      this.resetting = false
     }
   }
 }
@@ -4305,6 +4398,7 @@ export function apply(ctx, config) {
   const disposeQuotaRoute = registerQuotaRoute(ctx, () => readCodexRateLimits(undefined, adapter.getClient()))
   ctx.effect(() => disposeQuotaRoute, 'codex quota route')
   const auth = new CodexAuthAdapter(() => adapter.getClient())
+  ctx.effect(() => () => auth.close(), 'codex auth lifecycle')
   const disposeAuthRoutes = registerAuthRoutes(ctx, auth)
   ctx.effect(() => disposeAuthRoutes, 'codex auth routes')
   ctx.llm.registerModelDiscovery(
