@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtemp, cp, readFile, writeFile, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, cp, readFile, writeFile, mkdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,8 +37,18 @@ try {
   candidate.devDependencies.playwright = '1.64.1'
   await writeFile(join(workspace, 'package.json'), JSON.stringify(candidate, null, 2))
   const home = join(workspace, 'home')
-  await mkdir(home)
-  const env = { ...process.env, DSH_HOME: home, CODEX_HOME: join(home, 'codex-adapter') }
+  const documents = join(home, 'Documents')
+  await mkdir(documents, { recursive: true })
+  const browserCache = join(workspace, 'browsers')
+  const npmCache = command(npm, ['config', 'get', 'cache'], repo).trim()
+  const env = {
+    ...process.env,
+    HOME: home, USERPROFILE: home,
+    XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local/share'), XDG_CACHE_HOME: join(home, '.cache'),
+    APPDATA: join(home, 'AppData/Roaming'), LOCALAPPDATA: join(home, 'AppData/Local'),
+    DSH_HOME: home, CODEX_HOME: join(home, 'codex-adapter'),
+    npm_config_cache: npmCache, PLAYWRIGHT_BROWSERS_PATH: browserCache,
+  }
   await writeFile(join(output, 'install.log'), command(npm, ['install', '--no-audit', '--no-fund'], workspace, env))
   const tests = command(process.execPath, ['--test', '--test-reporter=tap'], workspace, env)
   await writeFile(join(output, 'tests.tap'), tests)
@@ -51,7 +61,9 @@ try {
   const { symlink } = await import('node:fs/promises')
   await symlink(workspace, join(profile, 'node_modules', manifest.name), process.platform === 'win32' ? 'junction' : 'dir')
   await writeFile(join(profile, 'cordis.yml'), '[]\n')
-  await writeFile(join(profile, 'cordis.patch.yml'), manifest.name.includes('session-manager') ? '- id: session-manager\n  config:\n    autoRecoverInterruptedGoals: false\n' : '[]\n')
+  const patch = [{ id: 'workspace-controller', config: { documentsDirectory: documents } }]
+  if (manifest.name.includes('session-manager')) patch.push({ id: 'session-manager', config: { autoRecoverInterruptedGoals: false } })
+  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify(patch, null, 2) + '\n')
   const cliPkg = JSON.parse(await readFile(join(workspace, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'))
   const cli = resolve(workspace, 'node_modules/@deepseek-ai/dsh', typeof cliPkg.bin === 'string' ? cliPkg.bin : cliPkg.bin.dsh)
   server = spawn(process.execPath, [cli, 'web', '--host', '127.0.0.1', '--port', '0', '--no-open'], { cwd: workspace, env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -66,9 +78,10 @@ try {
   }
   if (!url) throw new Error('Candidate web server startup timed out')
   if (/skipping profile bundle|disabling profile plugin row/i.test(serverLog)) throw new Error('Candidate skipped a plugin')
+  process.env.PLAYWRIGHT_BROWSERS_PATH = browserCache
   const { chromium } = await import(join(workspace, 'node_modules/playwright/index.mjs'))
   if (!process.env.DSH_TEST_BROWSER) command(process.execPath, [join(workspace, 'node_modules/playwright/cli.js'), 'install', 'chromium'], workspace, env)
-  browser = await chromium.launch({ headless: true, ...(process.env.DSH_TEST_BROWSER ? { executablePath: process.env.DSH_TEST_BROWSER } : {}), args: ['--no-sandbox'] })
+  browser = await chromium.launch({ headless: true, env, ...(process.env.DSH_TEST_BROWSER ? { executablePath: process.env.DSH_TEST_BROWSER } : {}), args: ['--no-sandbox'] })
   page = await browser.newPage()
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -93,6 +106,9 @@ try {
     if (await close.count()) await close.click()
     else await page.keyboard.press('Escape')
   }
+  await page.getByText(/^(Default workspace|默认工作区)$/).first().waitFor({ state: 'visible', timeout: 15000 })
+  if (!(await stat(join(documents, 'deepseek-harness', 'default-workspace'))).isDirectory()) throw new Error('Default workspace was not created in the isolated Documents directory')
+  if (await page.getByText(/Unable to create default workspace|无法创建默认工作区/).count()) throw new Error('Default workspace initialization failed')
   const origin = new URL(url).origin
   const { verifyPlugin } = await import('./verify-browser.mjs')
   await verifyPlugin({ page, origin, workspace, home, manifest, command, env })
@@ -100,7 +116,7 @@ try {
   await page.screenshot({ path: join(output, 'browser.png'), fullPage: true })
   result.passed = true
   result.plugin = { name: manifest.name, version: manifest.version }
-  result.checks = ['isolated-unit-integration-tests', 'real-web-profile', 'browser-render', 'plugin-api']
+  result.checks = ['isolated-unit-integration-tests', 'isolated-default-workspace', 'real-web-profile', 'browser-render', 'plugin-api']
 } catch (error) {
   if (page) {
     await page.screenshot({ path: join(output, 'failure.png'), fullPage: true }).catch(() => {})
