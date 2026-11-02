@@ -59,7 +59,7 @@ Runtime defaults:
 
 Requirements: Node.js 22.19+ and a DeepSeek Harness Web profile. The graphical login is stored in the plugin's independent Codex home; after upgrading to this isolated runtime, sign in again from the WebUI.
 
-Source version 0.9.2 pins Codex 0.156.1, supports DSH 0.2.1-rc.2, and retains compatibility coverage for these generations:
+Version 0.9.2 pins Codex 0.156.1, supports DSH 0.2.1-rc.2, and retains compatibility coverage for these generations:
 
 | DSH | Settings integration |
 | --- | --- |
@@ -80,11 +80,9 @@ independent account.
 
 ### GitHub Release (recommended)
 
-The release asset is a platform-neutral npm tarball; it is not published to npm. `pnpm`, through `dsh plugin`, resolves the pinned runtime dependencies and the matching official Codex native optional package for the host OS and architecture. The `v0.9.0` asset is:
+The release asset is a platform-neutral npm tarball; it is not published to npm. `pnpm`, through `dsh plugin`, resolves the pinned runtime dependencies and the matching official Codex native optional package for the host OS and architecture. The `v0.9.2` asset is:
 
-`local-dsh-codex-adapter-0.9.0.tgz`
-
-The release links below still point to published version 0.9.0. For DSH 0.2.1-rc.2, install 0.9.2 from the source directory until its release package is published.
+`local-dsh-codex-adapter-0.9.2.tgz`
 
 An unfinished stream sends one bounded interrupt when its consumer closes, then releases its subscription. Interrupts stay within the turn's app-server generation. Login completion notifications, app-server restarts, and a local 15-minute pending deadline clear stale login instructions and make a new attempt available. Delayed account-status responses are rejected after a newer login or logout changes the authentication state.
 
@@ -92,7 +90,7 @@ macOS/Linux:
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/local-dsh-codex-adapter-0.9.2.tgz"
 dsh --profile web --dump-config
 # Restart the DSH Web profile after the bundle changes.
 dsh web --no-open
@@ -102,7 +100,7 @@ Windows PowerShell:
 
 ```powershell
 dsh plugin --profile web add --save-exact `
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/local-dsh-codex-adapter-0.9.2.tgz"
 dsh --profile web --dump-config
 dsh web --no-open
 ```
@@ -110,8 +108,8 @@ dsh web --no-open
 For an audited install, download `SHA256SUMS` from the same release and verify the tarball before installing it from a local `file:` URL:
 
 ```sh
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/SHA256SUMS
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/local-dsh-codex-adapter-0.9.2.tgz
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/SHA256SUMS
 ```
 
 Linux checksum verification:
@@ -130,7 +128,7 @@ After verification, install the local tarball:
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "file:$PWD/local-dsh-codex-adapter-0.9.0.tgz"
+  "file:$PWD/local-dsh-codex-adapter-0.9.2.tgz"
 ```
 
 The release workflow uploads exactly two assets: the package tarball and `SHA256SUMS`. To update, run `dsh plugin --profile web add --save-exact` with the new release URL, then restart the profile. No `settings.yaml` edit is required; configuration remains in `Settings → Plugins → Plugin Configuration → Codex`.

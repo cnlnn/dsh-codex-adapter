@@ -59,7 +59,7 @@
 
 运行环境包括 Node.js 22.19+ 和 DeepSeek Harness Web Profile；独立 runtime 升级后首次使用需在 WebUI 中重新登录。
 
-源码版本 0.9.2 固定使用 Codex 0.156.1，支持 DSH 0.2.1-rc.2，并保留以下版本的兼容性回归：
+0.9.2 版本固定使用 Codex 0.156.1，支持 DSH 0.2.1-rc.2，并保留以下版本的兼容性回归：
 
 | DSH | 设置接口 |
 | --- | --- |
@@ -79,11 +79,9 @@ DSH 0.1.7 将配置改为按 Profile entry ID 管理，入口为 **侧栏 Plugin
 
 ### GitHub Release（推荐）
 
-Release 资产是跨平台的 npm tarball，不发布到 npm。`dsh plugin` 会通过 `pnpm` 安装锁定的运行时依赖，并按目标系统和架构解析官方 Codex 对应的 native optional package。`v0.9.0` 的资产文件名为：
+Release 资产是跨平台的 npm tarball，不发布到 npm。`dsh plugin` 会通过 `pnpm` 安装锁定的运行时依赖，并按目标系统和架构解析官方 Codex 对应的 native optional package。`v0.9.2` 的资产文件名为：
 
-`local-dsh-codex-adapter-0.9.0.tgz`
-
-下面的发布链接仍为已发布的 0.9.0；使用 DSH 0.2.1-rc.2 时，请按“从源码目录安装”使用 0.9.2，等待对应发布包。
+`local-dsh-codex-adapter-0.9.2.tgz`
 
 调用方提前关闭流时，未完成的 turn 会在原 app-server 代际内发送一次有时限的中断请求，再释放订阅。登录完成通知、app-server 重启或本地 15 分钟等待上限会清理旧登录信息，界面可重新发起登录。新登录或退出登录改变认证状态后，较晚返回的旧账号状态会被拒绝。
 
@@ -91,7 +89,7 @@ macOS/Linux：
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/local-dsh-codex-adapter-0.9.2.tgz"
 dsh --profile web --dump-config
 # Bundle 发生变化后需要重启 DSH Web Profile。
 dsh web --no-open
@@ -101,7 +99,7 @@ Windows PowerShell：
 
 ```powershell
 dsh plugin --profile web add --save-exact `
-  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz"
+  "https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/local-dsh-codex-adapter-0.9.2.tgz"
 dsh --profile web --dump-config
 dsh web --no-open
 ```
@@ -109,8 +107,8 @@ dsh web --no-open
 需要审计安装时，可从同一个 Release 下载 `SHA256SUMS`，校验 tarball 后再通过本地 `file:` URL 安装：
 
 ```sh
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/local-dsh-codex-adapter-0.9.0.tgz
-curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.0/SHA256SUMS
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/local-dsh-codex-adapter-0.9.2.tgz
+curl -fLO https://github.com/cnlnn/dsh-codex-adapter/releases/download/v0.9.2/SHA256SUMS
 ```
 
 Linux 校验：
@@ -129,7 +127,7 @@ shasum -a 256 --check SHA256SUMS
 
 ```sh
 dsh plugin --profile web add --save-exact \
-  "file:$PWD/local-dsh-codex-adapter-0.9.0.tgz"
+  "file:$PWD/local-dsh-codex-adapter-0.9.2.tgz"
 ```
 
 Release 工作流只上传两个资产：插件 tarball 和 `SHA256SUMS`。升级时，对新的 Release URL 再执行 `dsh plugin --profile web add --save-exact`，然后重启 Profile。无需编辑 `settings.yaml`；配置仍在 `设置 → 插件 → 插件配置 → Codex` 中完成。
